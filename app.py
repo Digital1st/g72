@@ -1,8 +1,8 @@
 from flask import Flask, request, redirect, url_for, flash, render_template_string
 import os
 from datetime import datetime
-import psycopg2
-from psycopg2.extras import RealDictCursor
+import psycopg
+from psycopg.rows import dict_row
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "dev-secret-key")
@@ -11,8 +11,8 @@ app.secret_key = os.environ.get("SECRET_KEY", "dev-secret-key")
 def get_db_connection():
     database_url = os.environ.get("DATABASE_URL")
     if not database_url:
-        raise ValueError("DATABASE_URL environment variable is not set.")
-    return psycopg2.connect(database_url, cursor_factory=RealDictCursor)
+        raise RuntimeError("DATABASE_URL is missing in Render environment settings.")
+    return psycopg.connect(database_url, row_factory=dict_row)
 
 
 def init_db():
@@ -22,7 +22,8 @@ def init_db():
         CREATE TABLE IF NOT EXISTS goals (
             id SERIAL PRIMARY KEY,
             goal TEXT NOT NULL,
-            goal_date DATE NOT NULL
+            goal_date DATE NOT NULL,
+            completed BOOLEAN NOT NULL DEFAULT FALSE
         );
     """)
     conn.commit()
@@ -40,7 +41,7 @@ INDEX_HTML = """
     <style>
         body {
             font-family: Arial, sans-serif;
-            max-width: 900px;
+            max-width: 1000px;
             margin: 40px auto;
             padding: 20px;
         }
@@ -52,6 +53,9 @@ INDEX_HTML = """
         }
         input[type="text"], input[type="date"] {
             width: 280px;
+        }
+        .checkbox-wrap {
+            margin: 10px 0;
         }
         table {
             width: 100%;
@@ -82,6 +86,10 @@ INDEX_HTML = """
             text-decoration: none;
             color: blue;
         }
+        .done {
+            text-decoration: line-through;
+            color: #666;
+        }
     </style>
 </head>
 <body>
@@ -105,6 +113,12 @@ INDEX_HTML = """
             <label>Date</label><br>
             <input type="date" name="goal_date" required>
         </div>
+        <div class="checkbox-wrap">
+            <label>
+                <input type="checkbox" name="completed">
+                Completed
+            </label>
+        </div>
         <div>
             <button type="submit">Insert</button>
         </div>
@@ -117,6 +131,7 @@ INDEX_HTML = """
                 <th>ID</th>
                 <th>Goal</th>
                 <th>Date</th>
+                <th>Completed</th>
                 <th>Actions</th>
             </tr>
         </thead>
@@ -124,10 +139,16 @@ INDEX_HTML = """
         {% for row in goals %}
             <tr>
                 <td>{{ row.id }}</td>
-                <td>{{ row.goal }}</td>
+                <td class="{{ 'done' if row.completed else '' }}">{{ row.goal }}</td>
                 <td>{{ row.goal_date }}</td>
+                <td>{{ 'Yes' if row.completed else 'No' }}</td>
                 <td>
                     <div class="actions">
+                        <form action="{{ url_for('toggle_complete', goal_id=row.id) }}" method="POST" style="display:inline;">
+                            <button type="submit">
+                                {{ 'Untick' if row.completed else 'Tick complete' }}
+                            </button>
+                        </form>
                         <a href="{{ url_for('edit_goal', goal_id=row.id) }}">Edit</a>
                         <form class="delete-form" action="{{ url_for('delete_goal', goal_id=row.id) }}" method="POST">
                             <button type="submit" onclick="return confirm('Delete this record?')">Delete</button>
@@ -137,7 +158,7 @@ INDEX_HTML = """
             </tr>
         {% else %}
             <tr>
-                <td colspan="4">No goals found.</td>
+                <td colspan="5">No goals found.</td>
             </tr>
         {% endfor %}
         </tbody>
@@ -166,6 +187,9 @@ EDIT_HTML = """
         }
         input[type="text"], input[type="date"] {
             width: 280px;
+        }
+        .checkbox-wrap {
+            margin: 10px 0;
         }
         .flash {
             color: green;
@@ -198,6 +222,12 @@ EDIT_HTML = """
             <label>Date</label><br>
             <input type="date" name="goal_date" value="{{ goal_item.goal_date }}" required>
         </div>
+        <div class="checkbox-wrap">
+            <label>
+                <input type="checkbox" name="completed" {% if goal_item.completed %}checked{% endif %}>
+                Completed
+            </label>
+        </div>
         <div>
             <button type="submit">Update</button>
             <a href="{{ url_for('index') }}">Back</a>
@@ -212,7 +242,11 @@ EDIT_HTML = """
 def index():
     conn = get_db_connection()
     cur = conn.cursor()
-    cur.execute("SELECT id, goal, goal_date FROM goals ORDER BY id ASC;")
+    cur.execute("""
+        SELECT id, goal, goal_date, completed
+        FROM goals
+        ORDER BY id ASC;
+    """)
     goals = cur.fetchall()
     cur.close()
     conn.close()
@@ -223,6 +257,7 @@ def index():
 def add_goal():
     goal = request.form.get("goal", "").strip()
     goal_date = request.form.get("goal_date", "").strip()
+    completed = request.form.get("completed") == "on"
 
     if not goal or not goal_date:
         flash("Goal and date are required.")
@@ -237,8 +272,8 @@ def add_goal():
     conn = get_db_connection()
     cur = conn.cursor()
     cur.execute(
-        "INSERT INTO goals (goal, goal_date) VALUES (%s, %s);",
-        (goal, goal_date)
+        "INSERT INTO goals (goal, goal_date, completed) VALUES (%s, %s, %s);",
+        (goal, goal_date, completed)
     )
     conn.commit()
     cur.close()
@@ -256,6 +291,7 @@ def edit_goal(goal_id):
     if request.method == "POST":
         goal = request.form.get("goal", "").strip()
         goal_date = request.form.get("goal_date", "").strip()
+        completed = request.form.get("completed") == "on"
 
         if not goal or not goal_date:
             flash("Goal and date are required.")
@@ -272,8 +308,8 @@ def edit_goal(goal_id):
             return redirect(url_for("edit_goal", goal_id=goal_id))
 
         cur.execute(
-            "UPDATE goals SET goal = %s, goal_date = %s WHERE id = %s;",
-            (goal, goal_date, goal_id)
+            "UPDATE goals SET goal = %s, goal_date = %s, completed = %s WHERE id = %s;",
+            (goal, goal_date, completed, goal_id)
         )
         conn.commit()
         cur.close()
@@ -282,7 +318,10 @@ def edit_goal(goal_id):
         flash("Goal updated successfully.")
         return redirect(url_for("index"))
 
-    cur.execute("SELECT id, goal, goal_date FROM goals WHERE id = %s;", (goal_id,))
+    cur.execute(
+        "SELECT id, goal, goal_date, completed FROM goals WHERE id = %s;",
+        (goal_id,)
+    )
     goal_item = cur.fetchone()
     cur.close()
     conn.close()
@@ -292,6 +331,23 @@ def edit_goal(goal_id):
         return redirect(url_for("index"))
 
     return render_template_string(EDIT_HTML, goal_item=goal_item)
+
+
+@app.route("/toggle/<int:goal_id>", methods=["POST"])
+def toggle_complete(goal_id):
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("""
+        UPDATE goals
+        SET completed = NOT completed
+        WHERE id = %s;
+    """, (goal_id,))
+    conn.commit()
+    cur.close()
+    conn.close()
+
+    flash("Goal status updated.")
+    return redirect(url_for("index"))
 
 
 @app.route("/delete/<int:goal_id>", methods=["POST"])
@@ -307,7 +363,8 @@ def delete_goal(goal_id):
     return redirect(url_for("index"))
 
 
-init_db()
+if os.environ.get("DATABASE_URL"):
+    init_db()
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=True)
