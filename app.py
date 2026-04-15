@@ -19,7 +19,7 @@ def init_db():
     conn = get_db_connection()
     cur = conn.cursor()
     cur.execute("""
-        CREATE TABLE IF NOT EXISTS goals (
+        CREATE TABLE IF NOT EXISTS goals1 (
             id SERIAL PRIMARY KEY,
             goal TEXT NOT NULL,
             goal_date DATE NOT NULL,
@@ -37,7 +37,7 @@ INDEX_HTML = """
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Goals App</title>
+    <title>goals1 App</title>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -93,7 +93,7 @@ INDEX_HTML = """
     </style>
 </head>
 <body>
-    <h1>Goals Tracker</h1>
+    <h1>goals1 Tracker</h1>
 
     {% with messages = get_flashed_messages() %}
       {% if messages %}
@@ -124,7 +124,7 @@ INDEX_HTML = """
         </div>
     </form>
 
-    <h2>All Goals</h2>
+    <h2>All goals1</h2>
     <table>
         <thead>
             <tr>
@@ -136,7 +136,7 @@ INDEX_HTML = """
             </tr>
         </thead>
         <tbody>
-        {% for row in goals %}
+        {% for row in goals1 %}
             <tr>
                 <td>{{ row.id }}</td>
                 <td class="{{ 'done' if row.completed else '' }}">{{ row.goal }}</td>
@@ -158,7 +158,7 @@ INDEX_HTML = """
             </tr>
         {% else %}
             <tr>
-                <td colspan="5">No goals found.</td>
+                <td colspan="5">No goals1 found.</td>
             </tr>
         {% endfor %}
         </tbody>
@@ -244,13 +244,13 @@ def index():
     cur = conn.cursor()
     cur.execute("""
         SELECT id, goal, goal_date, completed
-        FROM goals
+        FROM goals1
         ORDER BY id ASC;
     """)
-    goals = cur.fetchall()
+    goals1 = cur.fetchall()
     cur.close()
     conn.close()
-    return render_template_string(INDEX_HTML, goals=goals)
+    return render_template_string(INDEX_HTML, goals1=goals1)
 
 
 @app.route("/add", methods=["POST"])
@@ -272,7 +272,7 @@ def add_goal():
     conn = get_db_connection()
     cur = conn.cursor()
     cur.execute(
-        "INSERT INTO goals (goal, goal_date, completed) VALUES (%s, %s, %s);",
+        "INSERT INTO goals1 (goal, goal_date, completed) VALUES (%s, %s, %s);",
         (goal, goal_date, completed)
     )
     conn.commit()
@@ -308,7 +308,7 @@ def edit_goal(goal_id):
             return redirect(url_for("edit_goal", goal_id=goal_id))
 
         cur.execute(
-            "UPDATE goals SET goal = %s, goal_date = %s, completed = %s WHERE id = %s;",
+            "UPDATE goals1 SET goal = %s, goal_date = %s, completed = %s WHERE id = %s;",
             (goal, goal_date, completed, goal_id)
         )
         conn.commit()
@@ -319,7 +319,7 @@ def edit_goal(goal_id):
         return redirect(url_for("index"))
 
     cur.execute(
-        "SELECT id, goal, goal_date, completed FROM goals WHERE id = %s;",
+        "SELECT id, goal, goal_date, completed FROM goals1 WHERE id = %s;",
         (goal_id,)
     )
     goal_item = cur.fetchone()
@@ -338,7 +338,7 @@ def toggle_complete(goal_id):
     conn = get_db_connection()
     cur = conn.cursor()
     cur.execute("""
-        UPDATE goals
+        UPDATE goals1
         SET completed = NOT completed
         WHERE id = %s;
     """, (goal_id,))
@@ -354,7 +354,7 @@ def toggle_complete(goal_id):
 def delete_goal(goal_id):
     conn = get_db_connection()
     cur = conn.cursor()
-    cur.execute("DELETE FROM goals WHERE id = %s;", (goal_id,))
+    cur.execute("DELETE FROM goals1 WHERE id = %s;", (goal_id,))
     conn.commit()
     cur.close()
     conn.close()
